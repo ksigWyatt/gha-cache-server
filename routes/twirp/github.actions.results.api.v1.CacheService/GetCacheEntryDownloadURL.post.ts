@@ -1,6 +1,7 @@
 import { map, pipe, prop, sortBy } from 'remeda'
 import { z } from 'zod'
 import { getCacheScope } from '~/lib/scope'
+import { getMetrics } from '~/lib/metrics'
 import { getStorage } from '~/lib/storage'
 
 const bodySchema = z.object({
@@ -22,16 +23,21 @@ export default defineEventHandler(async (event) => {
   const { key, restore_keys, version } = parsedBody.data
 
   const storage = await getStorage()
+  const metrics = await getMetrics()
   const match = await storage.getCacheEntryWithDownloadUrl({
     keys: [key, ...(restore_keys ?? [])],
     version,
     scopes: pipe(scopes, sortBy([prop('Permission'), 'desc']), map(prop('Scope'))),
     repoId,
   })
-  if (!match)
+  if (!match) {
+    metrics?.cacheOperationsTotal.add(1, { operation: 'lookup', result: 'miss' })
     return {
       ok: false,
     }
+  }
+
+  metrics?.cacheOperationsTotal.add(1, { operation: 'lookup', result: 'hit' })
 
   return {
     ok: true,

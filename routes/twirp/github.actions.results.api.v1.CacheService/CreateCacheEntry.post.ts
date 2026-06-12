@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { env } from '~/lib/env'
 import { getCacheScope } from '~/lib/scope'
+import { getMetrics } from '~/lib/metrics'
 import { getStorage } from '~/lib/storage'
 
 const bodySchema = z.object({
@@ -22,6 +23,7 @@ export default defineEventHandler(async (event) => {
   const { key, version } = parsedBody.data
 
   const storage = await getStorage()
+  const metrics = await getMetrics()
   const writeScope = scopes.find((s) => s.Permission >= 2)
   if (!writeScope)
     throw createError({ statusCode: 403, message: 'No scope with write permission found' })
@@ -31,6 +33,8 @@ export default defineEventHandler(async (event) => {
     return {
       ok: false,
     }
+
+  metrics?.cacheOperationsTotal.add(1, { operation: 'create', result: 'success' })
 
   return {
     ok: true,
