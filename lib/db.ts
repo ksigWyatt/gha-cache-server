@@ -52,10 +52,23 @@ export const uploadSchema = z.object({
 })
 type Upload = z.infer<typeof uploadSchema>
 
+export const artifactSchema = z.object({
+  id: z.string(),
+  workflowRunBackendId: z.string(),
+  workflowJobRunBackendId: z.string(),
+  name: z.string(),
+  size: z.number(),
+  hash: z.string().nullable(),
+  cacheEntryId: z.string().nullable(),
+  createdAt: z.number(),
+})
+type Artifact = z.infer<typeof artifactSchema>
+
 export interface Database {
   cache_entries: CacheEntry
   storage_locations: StorageLocation
   uploads: Upload
+  artifacts: Artifact
 }
 
 const dbLogger = logger.withTag('db')

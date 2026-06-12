@@ -158,5 +158,35 @@ export function migrations(
         await db.schema.alterTable('uploads').dropColumn('repoId').execute()
       },
     },
+    $4_artifacts: {
+      async up(db) {
+        const idType = driver === 'mysql' ? 'varchar(36)' : 'text'
+        const nameType = driver === 'mysql' ? 'varchar(512)' : 'text'
+
+        await db.schema
+          .createTable('artifacts')
+          .addColumn('id', idType, (col) => col.primaryKey())
+          .addColumn('workflowRunBackendId', nameType, (col) => col.notNull())
+          .addColumn('workflowJobRunBackendId', nameType, (col) => col.notNull())
+          .addColumn('name', nameType, (col) => col.notNull())
+          .addColumn('size', 'bigint', (col) => col.notNull().defaultTo(0))
+          .addColumn('hash', nameType)
+          .addColumn('cacheEntryId', idType, (col) =>
+            col.references('cache_entries.id').onDelete('set null'),
+          )
+          .addColumn('createdAt', 'bigint', (col) => col.notNull())
+          .execute()
+
+        await db.schema
+          .createIndex('idx_artifacts_run')
+          .on('artifacts')
+          .columns(['workflowRunBackendId', 'workflowJobRunBackendId'])
+          .execute()
+      },
+      async down(db) {
+        await db.schema.dropIndex('idx_artifacts_run').execute()
+        await db.schema.dropTable('artifacts').execute()
+      },
+    },
   } satisfies Record<string, Migration>
 }

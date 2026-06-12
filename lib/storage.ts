@@ -492,6 +492,147 @@ export class Storage {
       cacheEntry: cacheEntry.match,
     }
   }
+
+  // --- ArtifactService support ---------------------------------------------
+  //
+  // Artifacts reuse the cache upload/merge machinery: each artifact is backed
+  // by a synthetic cache_entry keyed by the artifact's run/job/name. The
+  // `artifacts` table records run/job metadata and points at the resulting
+  // cache_entry so downloads can stream through the existing merge logic.
+
+  private artifactUploadParams(name: string, workflowRunId: string, workflowJobRunId: string) {
+    return {
+      key: name,
+      version: `artifact-v1-${workflowRunId}-${workflowJobRunId}`,
+      scope: workflowRunId,
+      repoId: workflowJobRunId,
+    }
+  }
+
+  async createArtifactUpload(
+    name: string,
+    workflowRunId: string,
+    workflowJobRunId: string,
+  ): Promise<{ id: string }> {
+    const params = this.artifactUploadParams(name, workflowRunId, workflowJobRunId)
+
+    // createUpload returns undefined when an upload with these coordinates
+    // already exists; reuse it so retries hit the same upload id.
+    const existing = await this.db
+      .selectFrom('uploads')
+      .where('key', '=', params.key)
+      .where('version', '=', params.version)
+      .where('scope', '=', params.scope)
+      .where('repoId', '=', params.repoId)
+      .select('id')
+      .executeTakeFirst()
+    if (existing) return { id: String(existing.id) }
+
+    const upload = await this.createUpload(params)
+    if (!upload) throw new Error('Failed to create artifact upload')
+    return { id: String(upload.id) }
+  }
+
+  async finalizeArtifact(
+    name: string,
+    workflowRunId: string,
+    workflowJobRunId: string,
+    size: number,
+    hash?: string,
+  ): Promise<{ artifactId: string }> {
+    const params = this.artifactUploadParams(name, workflowRunId, workflowJobRunId)
+
+    // Merge parts into a storage_location + cache_entry.
+    const upload = await this.completeUpload(params)
+    if (!upload) throw createError({ statusCode: 404, message: 'Artifact upload not found' })
+
+    // Resolve the cache_entry created (or updated) by completeUpload.
+    const cacheEntry = await this.db
+      .selectFrom('cache_entries')
+      .where('key', '=', params.key)
+      .where('version', '=', params.version)
+      .where('scope', '=', params.scope)
+      .where('repoId', '=', params.repoId)
+      .select('id')
+      .executeTakeFirst()
+
+    const { randomUUID } = await import('node:crypto')
+    const id = randomUUID()
+    await this.db
+      .insertInto('artifacts')
+      .values({
+        id,
+        workflowRunBackendId: workflowRunId,
+        workflowJobRunBackendId: workflowJobRunId,
+        name,
+        size,
+        hash: hash ?? null,
+        cacheEntryId: cacheEntry?.id ?? null,
+        createdAt: Date.now(),
+      })
+      .execute()
+
+    return { artifactId: id }
+  }
+
+  async listArtifacts(
+    workflowRunId: string,
+    workflowJobRunId?: string,
+    nameFilter?: string,
+  ): Promise<
+    Array<{
+      id: string
+      name: string
+      size: number
+      workflowRunBackendId: string
+      workflowJobRunBackendId: string
+    }>
+  > {
+    let query = this.db
+      .selectFrom('artifacts')
+      .selectAll()
+      .where('workflowRunBackendId', '=', workflowRunId)
+
+    if (workflowJobRunId) query = query.where('workflowJobRunBackendId', '=', workflowJobRunId)
+    if (nameFilter) query = query.where('name', '=', nameFilter)
+
+    const rows = await query.execute()
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      size: Number(r.size),
+      workflowRunBackendId: r.workflowRunBackendId,
+      workflowJobRunBackendId: r.workflowJobRunBackendId,
+    }))
+  }
+
+  async getArtifactDownloadUrl(
+    workflowRunId: string,
+    workflowJobRunId: string,
+    name: string,
+  ): Promise<string | null> {
+    const artifact = await this.db
+      .selectFrom('artifacts')
+      .select('id')
+      .where('workflowRunBackendId', '=', workflowRunId)
+      .where('workflowJobRunBackendId', '=', workflowJobRunId)
+      .where('name', '=', name)
+      .executeTakeFirst()
+
+    if (!artifact) return null
+    return `${env.API_BASE_URL}/download/artifact/${artifact.id}`
+  }
+
+  async downloadArtifact(artifactId: string): Promise<Readable | undefined> {
+    const artifact = await this.db
+      .selectFrom('artifacts')
+      .select('cacheEntryId')
+      .where('id', '=', artifactId)
+      .executeTakeFirst()
+
+    if (!artifact?.cacheEntryId) return
+    return this.download(artifact.cacheEntryId)
+  }
 }
 
 export const getStorage = createSingletonPromise(async () => Storage.fromEnv())
