@@ -4,7 +4,7 @@
   "version": "9.4.7",
   "private": true,
   "engines": {
-    "node": "25",
+    "node": ">=24",
     "pnpm": "10"
   },
   "scripts": {
