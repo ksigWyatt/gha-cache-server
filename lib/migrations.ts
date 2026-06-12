@@ -165,7 +165,10 @@ export function migrations(
 
         await db.schema
           .createTable('artifacts')
-          .addColumn('id', idType, (col) => col.primaryKey())
+          // numeric id: the @actions/artifact client does BigInt(artifactId) on
+          // the FinalizeArtifact response and uses it as an Int64 idFilter, so the
+          // id must be numeric (same bigint scheme as uploads), never a UUID.
+          .addColumn('id', 'bigint', (col) => col.primaryKey())
           .addColumn('workflowRunBackendId', nameType, (col) => col.notNull())
           .addColumn('workflowJobRunBackendId', nameType, (col) => col.notNull())
           .addColumn('name', nameType, (col) => col.notNull())

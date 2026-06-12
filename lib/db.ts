@@ -53,7 +53,7 @@ export const uploadSchema = z.object({
 type Upload = z.infer<typeof uploadSchema>
 
 export const artifactSchema = z.object({
-  id: z.string(),
+  id: z.number(),
   workflowRunBackendId: z.string(),
   workflowJobRunBackendId: z.string(),
   name: z.string(),

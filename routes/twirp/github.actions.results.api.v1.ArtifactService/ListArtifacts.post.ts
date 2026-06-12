@@ -16,7 +16,8 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success)
     throw createError({ statusCode: 400, statusMessage: `Invalid body: ${parsed.error.message}` })
 
-  const { workflow_run_backend_id, workflow_job_run_backend_id, name_filter } = parsed.data
+  const { workflow_run_backend_id, workflow_job_run_backend_id, name_filter, id_filter } =
+    parsed.data
   if (!workflow_run_backend_id)
     throw createError({ statusCode: 400, message: 'workflow_run_backend_id is required' })
 
@@ -25,13 +26,14 @@ export default defineEventHandler(async (event) => {
     workflow_run_backend_id,
     workflow_job_run_backend_id,
     name_filter,
+    id_filter,
   )
 
   return {
     artifacts: artifacts.map((a) => ({
       workflow_run_backend_id: a.workflowRunBackendId,
       workflow_job_run_backend_id: a.workflowJobRunBackendId,
-      database_id: a.id,
+      database_id: String(a.id),
       name: a.name,
       size: String(a.size),
     })),

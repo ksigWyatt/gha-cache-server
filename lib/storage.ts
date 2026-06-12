@@ -556,8 +556,8 @@ export class Storage {
       .select('id')
       .executeTakeFirst()
 
-    const { randomUUID } = await import('node:crypto')
-    const id = randomUUID()
+    // Numeric id — the client does BigInt(artifactId) on this response.
+    const id = generateNumberId()
     await this.db
       .insertInto('artifacts')
       .values({
@@ -572,16 +572,17 @@ export class Storage {
       })
       .execute()
 
-    return { artifactId: id }
+    return { artifactId: id.toString() }
   }
 
   async listArtifacts(
     workflowRunId: string,
     workflowJobRunId?: string,
     nameFilter?: string,
+    idFilter?: string,
   ): Promise<
     Array<{
-      id: string
+      id: number
       name: string
       size: number
       workflowRunBackendId: string
@@ -595,6 +596,8 @@ export class Storage {
 
     if (workflowJobRunId) query = query.where('workflowJobRunBackendId', '=', workflowJobRunId)
     if (nameFilter) query = query.where('name', '=', nameFilter)
+    // The download path filters by numeric id (Int64 idFilter from the client).
+    if (idFilter !== undefined && idFilter !== '') query = query.where('id', '=', Number(idFilter))
 
     const rows = await query.execute()
     return rows.map((r) => ({
@@ -627,7 +630,7 @@ export class Storage {
     const artifact = await this.db
       .selectFrom('artifacts')
       .select('cacheEntryId')
-      .where('id', '=', artifactId)
+      .where('id', '=', Number(artifactId))
       .executeTakeFirst()
 
     if (!artifact?.cacheEntryId) return

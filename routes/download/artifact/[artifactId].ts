@@ -1,4 +1,3 @@
-import type { ReadableStream } from 'node:stream/web'
 import { Readable } from 'node:stream'
 import { z } from 'zod'
 import { getStorage } from '~/lib/storage'
@@ -25,5 +24,10 @@ export default defineEventHandler(async (event) => {
       message: 'Artifact file not found',
     })
 
+  // The @actions/artifact download client only auto-extracts when it sees the
+  // content is a zip (Content-Type contains "zip", or the URL ends in .zip).
+  // Without this header download-artifact@v4 saves the raw zip instead of
+  // extracting the user's files.
+  setHeader(event, 'content-type', 'application/zip')
   return sendStream(event, Readable.toWeb(stream) as ReadableStream)
 })
