@@ -577,7 +577,7 @@ export class Storage {
 
   async listArtifacts(
     workflowRunId: string,
-    workflowJobRunId?: string,
+    _workflowJobRunId?: string,
     nameFilter?: string,
     idFilter?: string,
   ): Promise<
@@ -589,12 +589,16 @@ export class Storage {
       workflowJobRunBackendId: string
     }>
   > {
+    // Artifacts are RUN-scoped, not job-scoped: an artifact uploaded in one job must
+    // be listable from any other job of the same run (the prebuild -> build handoff
+    // that upload-artifact/download-artifact rely on). The caller's
+    // workflow_job_run_backend_id identifies the *requesting* job and must NOT filter
+    // the results, or cross-job downloads return nothing.
     let query = this.db
       .selectFrom('artifacts')
       .selectAll()
       .where('workflowRunBackendId', '=', workflowRunId)
 
-    if (workflowJobRunId) query = query.where('workflowJobRunBackendId', '=', workflowJobRunId)
     if (nameFilter) query = query.where('name', '=', nameFilter)
     // The download path filters by numeric id (Int64 idFilter from the client).
     if (idFilter !== undefined && idFilter !== '') query = query.where('id', '=', Number(idFilter))
@@ -611,15 +615,18 @@ export class Storage {
 
   async getArtifactDownloadUrl(
     workflowRunId: string,
-    workflowJobRunId: string,
+    _workflowJobRunId: string,
     name: string,
   ): Promise<string | null> {
+    // RUN-scoped lookup (see listArtifacts): the requesting job differs from the
+    // uploading job in a prebuild -> build handoff, so match on run + name only.
+    // Artifact names are unique per run, so newest-first is just defensive.
     const artifact = await this.db
       .selectFrom('artifacts')
       .select('id')
       .where('workflowRunBackendId', '=', workflowRunId)
-      .where('workflowJobRunBackendId', '=', workflowJobRunId)
       .where('name', '=', name)
+      .orderBy('createdAt', 'desc')
       .executeTakeFirst()
 
     if (!artifact) return null
