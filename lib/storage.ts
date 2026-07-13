@@ -652,6 +652,7 @@ interface StorageAdapter {
   uploadStream(objectName: string, stream: Readable): Promise<void>
   deleteFolder(folderName: string): Promise<void>
   countFilesInFolder(folderName: string): Promise<number>
+  folderSizeBytes(folderName: string): Promise<number>
   createDownloadUrl?(objectName: string): Promise<string>
   clear(): Promise<void>
 }
@@ -778,6 +779,27 @@ class S3Adapter implements StorageAdapter {
     return listResponse.KeyCount ?? 0
   }
 
+  async folderSizeBytes(folderName: string) {
+    let totalBytes = 0
+    let continuationToken: string | undefined
+
+    do {
+      const listResponse = await this.s3.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: `${this.keyPrefix}/${folderName}/`,
+          ContinuationToken: continuationToken,
+        }),
+      )
+
+      for (const obj of listResponse.Contents ?? []) totalBytes += obj.Size ?? 0
+
+      continuationToken = listResponse.IsTruncated ? listResponse.NextContinuationToken : undefined
+    } while (continuationToken)
+
+    return totalBytes
+  }
+
   async createDownloadUrl(objectName: string) {
     return getSignedUrl(
       this.s3,
@@ -792,7 +814,7 @@ class S3Adapter implements StorageAdapter {
   }
 }
 
-class FileSystemAdapter implements StorageAdapter {
+export class FileSystemAdapter implements StorageAdapter {
   private rootFolder
 
   constructor({ rootFolder }: { rootFolder: string }) {
@@ -861,6 +883,32 @@ class FileSystemAdapter implements StorageAdapter {
       throw err
     }
   }
+
+  async folderSizeBytes(folderName: string) {
+    const sumDir = async (dir: string): Promise<number> => {
+      let entries
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true })
+      } catch (err: any) {
+        if (err.code === 'ENOENT') return 0
+        throw err
+      }
+
+      let totalBytes = 0
+      for (const entry of entries) {
+        const entryPath = path.join(dir, entry.name)
+        if (entry.isDirectory()) totalBytes += await sumDir(entryPath)
+        else if (entry.isFile()) {
+          const stats = await fs.stat(entryPath)
+          totalBytes += stats.size
+        }
+      }
+
+      return totalBytes
+    }
+
+    return sumDir(path.join(this.rootFolder, folderName))
+  }
 }
 
 class GcsAdapter implements StorageAdapter {
@@ -926,6 +974,15 @@ class GcsAdapter implements StorageAdapter {
         autoPaginate: true,
       })
       .then((res) => res[0].length)
+  }
+
+  async folderSizeBytes(folderName: string) {
+    const [files] = await this.bucket.getFiles({
+      prefix: `${this.keyPrefix}/${folderName}/`,
+      autoPaginate: true,
+    })
+
+    return files.reduce((totalBytes, file) => totalBytes + Number(file.metadata.size ?? 0), 0)
   }
 
   async createDownloadUrl(objectName: string) {
