@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 
 import { z } from 'zod'
 import { logger } from '~/lib/logger'
+import { getMetrics } from '~/lib/metrics'
 
 import { getStorage } from '~/lib/storage'
 
@@ -45,6 +46,14 @@ export default defineEventHandler(async (event) => {
 
   const storage = await getStorage()
   await storage.uploadPart(uploadId, chunkIndex, stream as ReadableStream)
+
+  // Record uploaded bytes for throughput metrics (cache_bytes_uploaded_total). Each Azure
+  // block PUT carries an accurate Content-Length. No-op when metrics are disabled.
+  const uploadedBytes = Number(getHeader(event, 'content-length') ?? 0)
+  if (uploadedBytes > 0) {
+    const metrics = await getMetrics()
+    metrics?.cacheBytesUploadedTotal.add(uploadedBytes)
+  }
 
   // prevent random EOF error with in tonistiigi/go-actions-cache caused by missing request id
   setHeader(event, 'x-ms-request-id', randomUUID())
