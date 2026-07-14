@@ -1,5 +1,6 @@
-import { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
 import { z } from 'zod'
+import { getMetrics } from '~/lib/metrics'
 import { getStorage } from '~/lib/storage'
 
 const pathParamsSchema = z.object({
@@ -29,5 +30,20 @@ export default defineEventHandler(async (event) => {
   // Without this header download-artifact@v4 saves the raw zip instead of
   // extracting the user's files.
   setHeader(event, 'content-type', 'application/zip')
-  return sendStream(event, Readable.toWeb(stream) as ReadableStream)
+
+  // Count downloaded bytes for throughput metrics (cache_bytes_downloaded_total) by tapping
+  // the stream. No-op when metrics are disabled; a client abort simply won't record.
+  const metrics = await getMetrics()
+  let downloadedBytes = 0
+  const counted = stream.pipe(
+    new Transform({
+      transform(chunk, _enc, cb) {
+        downloadedBytes += chunk.length
+        cb(null, chunk)
+      },
+    }),
+  )
+  counted.on('end', () => metrics?.cacheBytesDownloadedTotal.add(downloadedBytes))
+
+  return sendStream(event, Readable.toWeb(counted) as ReadableStream)
 })

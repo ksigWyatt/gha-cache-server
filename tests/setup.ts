@@ -37,6 +37,7 @@ const TESTING_ENV_BASE = {
   | 'ENABLE_DIRECT_DOWNLOADS'
   | 'BENCHMARK'
   | 'SKIP_TOKEN_VALIDATION'
+  | 'METRICS_ENABLED'
 > &
   Record<string, string>
 
